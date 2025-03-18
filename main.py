@@ -4,6 +4,7 @@ import re
 import pandas as pd
 from openpyxl import load_workbook
 import shutil
+import xml.etree.ElementTree as ET
 
 DIST = 'COMPAGÁS'
 
@@ -27,7 +28,15 @@ class ExtratorFaturas:
             if match:
                 informacoes[chave] = match.group(1) if match.groups() else match.group(0)
         return informacoes
-    
+
+    def extrair_informacoes_xml(self, root):
+        informacoes = {}
+        for chave in self.regexes.keys():
+            elemento = root.find(chave)
+            if elemento is not None:
+                informacoes[chave] = elemento.text
+        return informacoes
+
 def extrair_texto(caminho_do_pdf):
     texto = ''
     with open(caminho_do_pdf, 'rb') as arquivo:
@@ -43,6 +52,16 @@ def extrair_texto(caminho_do_pdf):
     else:
         print(f"Texto extraído do PDF {caminho_do_pdf}: {texto[:500]}...")  # Mostra os primeiros 500 caracteres do texto extraído
     return texto.strip()  # Remove espaços extras no início e no fim
+
+def extrair_texto_xml(caminho_do_xml):
+    try:
+        tree = ET.parse(caminho_do_xml)
+        root = tree.getroot()
+        print(f"XML carregado com sucesso: {caminho_do_xml}")
+        return root
+    except Exception as e:
+        print(f"Erro ao extrair texto do XML: {caminho_do_xml}, erro: {e}")
+        return None
 
 def registro_existe(df, cnpj, data_inicio, data_fim, valor_total):
     return not df[(df['CNPJ'] == cnpj) & (df['DATA INICIO'] == data_inicio) & (df['DATA FIM'] == data_fim) & (df['VALOR TOTAL'] == valor_total)].empty
@@ -124,34 +143,43 @@ def verificar_linha_preenchida(caminho_planilha, informacoes):
         print(f"Erro ao verificar a planilha: {e}")
         return False
 
-def main(file_path, pdf_file, caminho_planilha):
-    texto_pypdf = extrair_texto(pdf_file)
-    if not texto_pypdf:
-        print(f"Erro ao extrair texto do PDF: {pdf_file}")
+def main(file_path, file, caminho_planilha):
+    if file.lower().endswith('.pdf'):
+        texto = extrair_texto(file)
+        extrator = ExtratorFaturas()
+        informacoes = extrator.extrair_informacoes(texto)
+    elif file.lower().endswith('.xml'):
+        root = extrair_texto_xml(file)
+        if root is not None:
+            extrator = ExtratorFaturas()
+            informacoes = extrator.extrair_informacoes_xml(root)
+        else:
+            informacoes = {}
+    else:
+        print(f"Formato de arquivo não suportado: {file}")
         return
 
-    extrator = ExtratorFaturas()
-    informacoes = extrator.extrair_informacoes(texto_pypdf)
     if not any(informacoes.values()):
-        print(f"Nenhuma informação extraída do PDF: {pdf_file}")
+        print(f"Nenhuma informação extraída do arquivo: {file}")
         return
 
-    nome_arquivo = os.path.basename(pdf_file)
+    nome_arquivo = os.path.basename(file)
     inserido = adicionar_na_planilha(informacoes, caminho_planilha, nome_arquivo)
     print(informacoes)
 
     if inserido:
         destino = os.path.join(diretorio_destino, nome_arquivo)
-        mover_arquivo(pdf_file, destino)
+        mover_arquivo(file, destino)
     else:
         print('Arquivo não foi inserido na planilha devido a dados faltantes ou duplicados. Não será movido.')
+
 # Exemplo de uso
 file_path = r'G:\QUALIDADE\Códigos\Leitura de Faturas Gás\Códigos\Compagás\Faturas'
 diretorio_destino = r'G:\QUALIDADE\Códigos\Leitura de Faturas Gás\Códigos\Compagás\Lidos'
 caminho_planilha = r'G:\QUALIDADE\Códigos\Leitura de Faturas Gás\Códigos\00 Faturas Lidas\COMPAGÁS.xlsx'
 
 for arquivo in os.listdir(file_path):
-    if arquivo.endswith('.pdf') or arquivo.endswith('.PDF'):
+    if arquivo.lower().endswith('.pdf') or arquivo.lower().endswith('.xml'):
         arquivo_full = os.path.join(file_path, arquivo)
         arquivo = os.path.basename(arquivo)
 
